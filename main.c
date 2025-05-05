@@ -25,18 +25,16 @@ void ftl_print();
 int main(int argc, char *argv[])
 {
 	char *blockbuf;
- 	char sectorbuf[SECTOR_SIZE];
-	int lsn, i;
+	char sectorbuf[SECTOR_SIZE];
+	int i;
 
-    flashmemoryfp = fopen("flashmemory", "w+b");
+	flashmemoryfp = fopen("flashmemory", "w+b");
 	if(flashmemoryfp == NULL)
 	{
-		printf("file open error\n");
 		exit(1);
 	}
-	   
-    // flash memory의 모든 바이트를 '0xff'로 초기화한다.
-    blockbuf = (char *)malloc(BLOCK_SIZE);
+	
+	blockbuf = (char *)malloc(BLOCK_SIZE);
 	memset(blockbuf, 0xFF, BLOCK_SIZE);
 
 	for(i = 0; i < BLOCKS_PER_DEVICE; i++)
@@ -46,60 +44,41 @@ int main(int argc, char *argv[])
 
 	free(blockbuf);
 
-	ftl_open();    // ftl_read(), ftl_write() 호출하기 전에 이 함수를 반드시 호출해야 함
+	ftl_open();
 
-	// 테스트 코드 시작
-	printf("\n=== Testing FTL functionality ===\n");
+	// LBN 0 채우기 (LSN 0~3)
+	for(i = 0; i < 4; i++) {
+		memset(sectorbuf, 'A'+i, SECTOR_SIZE);
+		ftl_write(i, sectorbuf);
+	}
 
-	// 1. 초기 데이터 쓰기
-	memset(sectorbuf, 'A', SECTOR_SIZE);
-	ftl_write(0, sectorbuf);
-	printf("Wrote 'A' to LSN 0\n");
+	// LBN 2 채우기 (LSN 8~11)
+	for(i = 8; i < 12; i++) {
+		memset(sectorbuf, 'M'+i-8, SECTOR_SIZE);
+		ftl_write(i, sectorbuf);
+	}
 
-	memset(sectorbuf, 'B', SECTOR_SIZE);
-	ftl_write(1, sectorbuf);
-	printf("Wrote 'B' to LSN 1\n");
+	// LBN 4 채우기 (LSN 16~19)
+	for(i = 16; i < 20; i++) {
+		memset(sectorbuf, 'W'+i-16, SECTOR_SIZE);
+		ftl_write(i, sectorbuf);
+	}
 
-	memset(sectorbuf, 'C', SECTOR_SIZE);
-	ftl_write(2, sectorbuf);
-	printf("Wrote 'C' to LSN 2\n");
-
-	memset(sectorbuf, 'D', SECTOR_SIZE);
-	ftl_write(3, sectorbuf);
-	printf("Wrote 'D' to LSN 3\n");
-
-	// 2. 매핑 테이블 상태 출력
-	printf("\nInitial mapping table state:\n");
 	ftl_print();
 
-	// 3. 데이터 읽기 테스트
-	printf("\nReading data:\n");
-	ftl_read(0, sectorbuf);
-	printf("LSN 0: %c %c %c ...\n", sectorbuf[0], sectorbuf[1], sectorbuf[2]);
+	// LBN 0에 대해 블록 교체 발생시키기
+	for(i = 0; i < 4; i++) {
+		memset(sectorbuf, '0'+i, SECTOR_SIZE);
+		ftl_write(i, sectorbuf);  // 같은 LSN에 덮어쓰기
+	}
 
-	ftl_read(1, sectorbuf);
-	printf("LSN 1: %c %c %c ...\n", sectorbuf[0], sectorbuf[1], sectorbuf[2]);
+	// LBN 2도 블록 교체 발생시키기
+	for(i = 8; i < 12; i++) {
+		memset(sectorbuf, '5'+i-8, SECTOR_SIZE);
+		ftl_write(i, sectorbuf);
+	}
 
-	ftl_read(2, sectorbuf);
-	printf("LSN 2: %c %c %c ...\n", sectorbuf[0], sectorbuf[1], sectorbuf[2]);
-
-	ftl_read(3, sectorbuf);
-	printf("LSN 3: %c %c %c ...\n", sectorbuf[0], sectorbuf[1], sectorbuf[2]);
-
-	// 4. 덮어쓰기 테스트
-	printf("\nTesting overwrite:\n");
-	memset(sectorbuf, '0', SECTOR_SIZE);
-	ftl_write(0, sectorbuf);
-	printf("Wrote '0' to LSN 0\n");
-
-	ftl_read(0, sectorbuf);
-	printf("LSN 0 after overwrite: %c %c %c ...\n", sectorbuf[0], sectorbuf[1], sectorbuf[2]);
-
-	// 5. 최종 매핑 테이블 상태 출력
-	printf("\nFinal mapping table state:\n");
 	ftl_print();
-
-	printf("\n=== Test complete ===\n");
 
 	fclose(flashmemoryfp);
 	return 0;
