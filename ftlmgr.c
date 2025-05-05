@@ -118,35 +118,25 @@ int ftl_read(int lsn, char *sectorbuf)
     int latest_offset = -1;
     char latest_data[SECTOR_SIZE];
     
-    printf("DEBUG: Reading LSN %d (LBN %d, offset %d)\n", lsn, lbn, offset);
-    
     // Check if logical block is mapped
     if (mapping_table[lbn].pbn == -1) {
-        printf("DEBUG: LBN %d is unmapped, returning 0xFF\n", lbn);
         memset(sectorbuf, 0xFF, SECTOR_SIZE);
         return 1;
     }
     
     pbn = mapping_table[lbn].pbn;
-    printf("DEBUG: Reading from PBN %d (last_offset: %d)\n", pbn, mapping_table[lbn].last_offset);
     
     // Check all pages in the block to find the latest version
-    printf("DEBUG: Scanning block for latest version of LSN %d\n", lsn);
     for (int i = 0; i <= mapping_table[lbn].last_offset; i++) {
         ppn = pbn * PAGES_PER_BLOCK + i;
         if (fdd_read(ppn, pagebuf) == 1) {
             int page_lsn;
             memcpy(&page_lsn, pagebuf + SECTOR_SIZE, sizeof(int));
-            printf("DEBUG: Found LSN %d at offset %d (data: %c %c %c...)\n", 
-                   page_lsn, i, pagebuf[0], pagebuf[1], pagebuf[2]);
             
             if (page_lsn == lsn) {
-                printf("DEBUG: Matching LSN found at offset %d (current latest: %d)\n", 
-                       i, latest_offset);
                 if (i > latest_offset) {
                     latest_offset = i;
                     memcpy(latest_data, pagebuf, SECTOR_SIZE);
-                    printf("DEBUG: Updated latest data from offset %d\n", i);
                 }
             }
         }
@@ -154,13 +144,10 @@ int ftl_read(int lsn, char *sectorbuf)
     
     if (latest_offset != -1) {
         memcpy(sectorbuf, latest_data, SECTOR_SIZE);
-        printf("DEBUG: Returning data for LSN %d from offset %d (data: %c %c %c...)\n", 
-               lsn, latest_offset, latest_data[0], latest_data[1], latest_data[2]);
         return 1;
     }
     
     // If no valid data found, return 0xFF
-    printf("DEBUG: No valid data found for LSN %d, returning 0xFF\n", lsn);
     memset(sectorbuf, 0xFF, SECTOR_SIZE);
     return 1;
 }
@@ -176,8 +163,6 @@ void ftl_write(int lsn, char *sectorbuf)
     char pagebuf[PAGE_SIZE];
     int pbn, ppn;
     
-    printf("DEBUG: Writing LSN %d (LBN %d, offset %d)\n", lsn, lbn, offset);
-    
     // Check if logical block is mapped
     if (mapping_table[lbn].pbn == -1) {
         // Block not mapped, allocate a new block
@@ -188,22 +173,18 @@ void ftl_write(int lsn, char *sectorbuf)
         }
         mapping_table[lbn].pbn = pbn;
         mapping_table[lbn].last_offset = -1;
-        printf("DEBUG: Allocated new block PBN %d for LBN %d\n", pbn, lbn);
     } else {
         pbn = mapping_table[lbn].pbn;
-        printf("DEBUG: Using existing block PBN %d for LBN %d\n", pbn, lbn);
     }
     
     // Check if we need block replacement
     if (mapping_table[lbn].last_offset >= PAGES_PER_BLOCK - 1) {
-        printf("DEBUG: Block replacement needed for LBN %d\n", lbn);
         // Need block replacement
         int new_pbn = get_free_block();
         if (new_pbn == -1) {
             perror("No free blocks available for replacement");
             exit(1);
         }
-        printf("DEBUG: Allocated new block PBN %d for replacement\n", new_pbn);
         
         // 각 LSN의 최신 offset을 저장할 배열
         int* latest_offsets = (int*)malloc(PAGES_PER_BLOCK * sizeof(int));
@@ -217,7 +198,6 @@ void ftl_write(int lsn, char *sectorbuf)
         }
         
         // 첫 번째 패스: 각 LSN의 최신 offset 찾기 (역순으로 검사)
-        printf("DEBUG: Starting first pass to find latest versions\n");
         for (int i = mapping_table[lbn].last_offset; i >= 0; i--) {
             int old_ppn = pbn * PAGES_PER_BLOCK + i;
             if (fdd_read(old_ppn, pagebuf) == 1) {
@@ -228,8 +208,6 @@ void ftl_write(int lsn, char *sectorbuf)
                 // 해당 LBN의 LSN이고 아직 발견되지 않은 경우에만 업데이트
                 if (page_lsn / PAGES_PER_BLOCK == lbn && latest_offsets[offset] == -1) {
                     latest_offsets[offset] = i;
-                    printf("DEBUG: Found LSN %d at offset %d (data: %c %c %c...)\n", 
-                           page_lsn, i, pagebuf[0], pagebuf[1], pagebuf[2]);
                 }
             }
         }
@@ -241,8 +219,6 @@ void ftl_write(int lsn, char *sectorbuf)
                 int old_ppn = pbn * PAGES_PER_BLOCK + latest_offsets[i];
                 if (fdd_read(old_ppn, pagebuf) == 1) {
                     int new_ppn = new_pbn * PAGES_PER_BLOCK + new_offset;
-                    printf("DEBUG: Copying data from offset %d to new offset %d\n", 
-                           latest_offsets[i], new_offset);
                     
                     if (fdd_write(new_ppn, pagebuf) != 1) {
                         free(latest_offsets);
@@ -258,7 +234,6 @@ void ftl_write(int lsn, char *sectorbuf)
         free(latest_offsets);
         
         // Erase old block and add to free list
-        printf("DEBUG: Erasing old block PBN %d\n", pbn);
         fdd_erase(pbn);
         add_to_free_list(pbn);
         
@@ -266,8 +241,6 @@ void ftl_write(int lsn, char *sectorbuf)
         pbn = new_pbn;
         mapping_table[lbn].pbn = pbn;
         mapping_table[lbn].last_offset = new_offset - 1;
-        printf("DEBUG: Updated mapping for LBN %d to PBN %d (last_offset: %d)\n", 
-               lbn, pbn, mapping_table[lbn].last_offset);
     }
     
     // Prepare page buffer
@@ -277,8 +250,6 @@ void ftl_write(int lsn, char *sectorbuf)
     
     // Write to next available page
     ppn = pbn * PAGES_PER_BLOCK + (mapping_table[lbn].last_offset + 1);
-    printf("DEBUG: Writing to PPN %d (PBN %d, offset %d)\n", 
-           ppn, pbn, mapping_table[lbn].last_offset + 1);
     
     if (fdd_write(ppn, pagebuf) != 1) {
         perror("Failed to write page");
@@ -287,8 +258,6 @@ void ftl_write(int lsn, char *sectorbuf)
     
     // Update last_offset
     mapping_table[lbn].last_offset++;
-    printf("DEBUG: Updated last_offset for LBN %d to %d\n", 
-           lbn, mapping_table[lbn].last_offset);
 }
 
 // 
